@@ -1,0 +1,600 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">modelzoo\modeladd.go (53.7%)</option>
+				
+				<option value="file1">modelzoo\modelzoo.go (81.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package modelzoo
+
+import (
+        "crypto/rand"
+        "fmt"
+        "io"
+        "strings"
+        "unicode/utf8"
+
+        "github.com/samuel/go-zookeeper/zk"
+)
+
+func (z Zkinfo) createProtectedSequential(path string, data []byte, acl []zk.ACL) (string, error) <span class="cov8" title="1">{
+        if err := validatePath(path, true); err != nil </span><span class="cov0" title="0">{
+                return "", err
+        }</span>
+        <span class="cov8" title="1">c := z.conn
+        var guid [16]byte
+        _, err := io.ReadFull(rand.Reader, guid[:16])
+        if err != nil </span><span class="cov0" title="0">{
+                return "", err
+        }</span>
+        <span class="cov8" title="1">guidStr := fmt.Sprintf("%x", guid)
+
+        parts := strings.Split(path, "/")
+        //parts[len(parts)-1] = fmt.Sprintf("%s%s-%s", protectedPrefix, guidStr, parts[len(parts)-1])
+        rootPath := strings.Join(parts[:len(parts)-1], "/")
+        protectedPath := strings.Join(parts, "/")
+
+        var newPath string
+        for i := 0; i &lt; 3; i++ </span><span class="cov8" title="1">{
+                newPath, err = c.Create(protectedPath, data, zk.FlagEphemeral|zk.FlagSequence, acl)
+                switch err </span>{
+                case zk.ErrSessionExpired:</span><span class="cov0" title="0">
+                        // No need to search for the node since it can't exist. Just try again.
+                case zk.ErrConnectionClosed:<span class="cov0" title="0">
+                        children, _, err := c.Children(rootPath)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return "", err
+                        }</span>
+                        <span class="cov0" title="0">for _, p := range children </span><span class="cov0" title="0">{
+                                parts := strings.Split(p, "/")
+                                if pth := parts[len(parts)-1]; strings.HasPrefix(pth, "_c_") </span><span class="cov0" title="0">{
+                                        if g := pth[len("_c_") : len("_c_")+32]; g == guidStr </span><span class="cov0" title="0">{
+                                                return rootPath + "/" + p, nil
+                                        }</span>
+                                }
+                        }
+                case nil:<span class="cov8" title="1">
+                        return newPath, nil</span>
+                default:<span class="cov0" title="0">
+                        return "", err</span>
+                }
+        }
+        <span class="cov0" title="0">return "", err</span>
+}
+
+func validatePath(path string, isSequential bool) error <span class="cov8" title="1">{
+        if path == "" </span><span class="cov0" title="0">{
+                return zk.ErrInvalidPath
+        }</span>
+
+        <span class="cov8" title="1">if path[0] != '/' </span><span class="cov0" title="0">{
+                return zk.ErrInvalidPath
+        }</span>
+
+        <span class="cov8" title="1">n := len(path)
+        if n == 1 </span><span class="cov0" title="0">{
+                // path is just the root
+                return nil
+        }</span>
+
+        <span class="cov8" title="1">if !isSequential &amp;&amp; path[n-1] == '/' </span><span class="cov0" title="0">{
+                return zk.ErrInvalidPath
+        }</span>
+
+        // Start at rune 1 since we already know that the first character is
+        // a '/'.
+        <span class="cov8" title="1">for i, w := 1, 0; i &lt; n; i += w </span><span class="cov8" title="1">{
+                r, width := utf8.DecodeRuneInString(path[i:])
+                switch </span>{
+                case r == '\u0000':<span class="cov0" title="0">
+                        return zk.ErrInvalidPath</span>
+                case r == '/':<span class="cov8" title="1">
+                        last, _ := utf8.DecodeLastRuneInString(path[:i])
+                        if last == '/' </span><span class="cov0" title="0">{
+                                return zk.ErrInvalidPath
+                        }</span>
+                case r == '.':<span class="cov8" title="1">
+                        last, lastWidth := utf8.DecodeLastRuneInString(path[:i])
+
+                        // Check for double dot
+                        if last == '.' </span><span class="cov0" title="0">{
+                                last, _ = utf8.DecodeLastRuneInString(path[:i-lastWidth])
+                        }</span>
+
+                        <span class="cov8" title="1">if last == '/' </span><span class="cov0" title="0">{
+                                if i+1 == n </span><span class="cov0" title="0">{
+                                        return zk.ErrInvalidPath
+                                }</span>
+
+                                <span class="cov0" title="0">next, _ := utf8.DecodeRuneInString(path[i+w:])
+                                if next == '/' </span><span class="cov0" title="0">{
+                                        return zk.ErrInvalidPath
+                                }</span>
+                        }
+                case r &gt;= '\u0000' &amp;&amp; r &lt;= '\u001f',
+                        r &gt;= '\u007f' &amp;&amp; r &lt;= '\u009f',
+                        r &gt;= '\uf000' &amp;&amp; r &lt;= '\uf8ff',
+                        r &gt;= '\ufff0' &amp;&amp; r &lt; '\uffff':<span class="cov0" title="0">
+                        return zk.ErrInvalidPath</span>
+                }
+                <span class="cov8" title="1">w = width</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package modelzoo
+
+import (
+        "errors"
+        "fmt"
+        "os"
+        "strconv"
+        "strings"
+        "time"
+
+        "github.com/samuel/go-zookeeper/zk"
+)
+
+// Zkinfo is the information about zookeeper
+type Zkinfo struct {
+        Path, Onf                                    string
+        EndPoint, Topic1, Topic2, TopicMsg, careNode []string
+        ReConnect                                    bool
+        conn                                         *zk.Conn
+        connEvent                                    &lt;-chan zk.Event
+}
+type nodesMsg struct {
+        Topic      map[string]string
+        State      map[string]string
+        RunningTCP map[string]string
+}
+
+var initZk = &amp;Zkinfo{}
+
+// NodeInfo is every node's state
+var NodeInfo = &amp;nodesMsg{
+        Topic:      make(map[string]string),
+        State:      make(map[string]string),
+        RunningTCP: make(map[string]string),
+}
+
+var seq = 0
+var localendpoint string
+var hasConn bool
+
+// ApKind is a map which Apkind as key and ClientFlag as value
+var ApKind = make(map[string]string)
+
+// CfGwOsApKind is a map which ClientFlag as key and Apkind as value
+var CfGwOsApKind = make(map[string]string)
+
+// ZkConn is used to connect zookeeper
+func ZkConn(path string, endpoint []string, onf string) (*Zkinfo, error) <span class="cov8" title="1">{
+        conn, connEvent, err := zk.Connect(endpoint, time.Second)
+        if err != nil </span><span class="cov0" title="0">{
+                return initZk, err
+        }</span>
+        <span class="cov8" title="1">initZk.Path = path
+        initZk.EndPoint = endpoint
+        initZk.Onf = onf
+        initZk.conn = conn
+        initZk.connEvent = connEvent
+        return initZk, nil</span>
+}
+
+// Zkget is used to get details on zookeeper
+func (z Zkinfo) Zkget() (*Zkinfo, error) <span class="cov8" title="1">{
+        tmpz, err := z.getCfg()
+        if err != nil </span><span class="cov0" title="0">{
+                return &amp;z, err
+        }</span>
+        <span class="cov8" title="1">err = tmpz.getApkind()
+        if err != nil </span><span class="cov0" title="0">{
+                return &amp;z, err
+        }</span>
+        <span class="cov8" title="1">tmpz, err = tmpz.getTopic()
+        if err != nil </span><span class="cov0" title="0">{
+                return &amp;z, err
+        }</span>
+        <span class="cov8" title="1">return tmpz, nil</span>
+}
+func (z Zkinfo) getCfg() (*Zkinfo, error) <span class="cov8" title="1">{
+        cfgpath := z.Path + "/cfg/" + z.Onf
+        children, _, err := z.conn.Children(cfgpath)
+        // Cfg is config on zookeeper
+        var cfg = make(map[string][]byte)
+        if err != nil </span><span class="cov0" title="0">{
+                return &amp;z, err
+        }</span>
+        <span class="cov8" title="1">for _, child := range children </span><span class="cov8" title="1">{
+                byt, _, err := z.conn.Get(cfgpath + "/" + child)
+                if err != nil </span><span class="cov0" title="0">{
+                        return &amp;z, err
+                }</span>
+                <span class="cov8" title="1">cfg[child] = byt</span>
+        }
+        <span class="cov8" title="1">if val, ok := cfg["TopicNode1"]; ok </span><span class="cov8" title="1">{
+                z.Topic1 = strings.Split(string(val), "|")
+        }</span> else<span class="cov0" title="0"> {
+                return &amp;z, errors.New("Can't find TopicNode1 in config\r")
+        }</span>
+        <span class="cov8" title="1">if val, ok := cfg["TopicNode2"]; ok </span><span class="cov8" title="1">{
+                z.Topic2 = strings.Split(string(val), "|")
+        }</span> else<span class="cov0" title="0"> {
+                return &amp;z, errors.New("Can't find TopicNode2 in config\r")
+        }</span>
+        <span class="cov8" title="1">if val, ok := cfg["TopicMsg"]; ok </span><span class="cov8" title="1">{
+                z.TopicMsg = strings.Split(string(val), "|")
+        }</span> else<span class="cov0" title="0"> {
+                return &amp;z, errors.New("Can't find TopicMsg in config\r")
+        }</span>
+        <span class="cov8" title="1">if val, ok := cfg["CareNode"]; ok </span><span class="cov8" title="1">{
+                z.careNode = strings.Split(string(val), "|")
+        }</span> else<span class="cov0" title="0"> {
+                return &amp;z, errors.New("Can't find CareNode in config\r")
+        }</span>
+        <span class="cov8" title="1">if val, ok := cfg["ReConnect"]; ok </span><span class="cov8" title="1">{
+                if strings.ToUpper(string(val)) == "TRUE" </span><span class="cov8" title="1">{
+                        z.ReConnect = true
+                }</span> else<span class="cov0" title="0"> {
+                        z.ReConnect = false
+                }</span>
+        } else<span class="cov0" title="0"> {
+                return &amp;z, errors.New("Can't find ReConnect in config\r")
+        }</span>
+        <span class="cov8" title="1">initZk = &amp;z
+        return &amp;z, nil</span>
+}
+
+func (z Zkinfo) getTopic() (*Zkinfo, error) <span class="cov8" title="1">{
+        topicpath := z.Path + "/topics"
+        topics, _, err := z.conn.Children(topicpath)
+        if err != nil </span><span class="cov0" title="0">{
+                return &amp;z, err
+        }</span>
+        <span class="cov8" title="1">for _, v := range topics </span><span class="cov8" title="1">{
+                singleT := strings.Split(v, ".")
+                tp1 := fmt.Sprintf("%s.%s", singleT[0], singleT[1])
+                for _, t1Child := range z.Topic1 </span><span class="cov8" title="1">{
+                        if t1Child != tp1 </span><span class="cov8" title="1">{
+                                continue</span>
+                        }
+                        <span class="cov8" title="1">tp2 := fmt.Sprintf("%s.%s", singleT[3], singleT[4])
+                        for _, t2Child := range z.Topic2 </span><span class="cov8" title="1">{
+                                if t2Child != tp2 </span><span class="cov8" title="1">{
+                                        continue</span>
+                                }
+                                <span class="cov8" title="1">bytes, _, err := z.conn.Get(topicpath + "/" + v)
+                                if err != nil </span><span class="cov0" title="0">{
+                                        return &amp;z, err
+                                }</span>
+                                <span class="cov8" title="1">NodeInfo.Topic[v] = string(bytes)</span>
+                        }
+                }
+        }
+        <span class="cov8" title="1">return &amp;z, nil</span>
+}
+func (z Zkinfo) getApkind() error <span class="cov8" title="1">{
+        apkindpath := z.Path + "/APKind"
+        children, _, err := z.conn.Children(apkindpath)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">for _, child := range children </span><span class="cov8" title="1">{
+                byt, _, err := z.conn.Get(apkindpath + "/" + child)
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">tmp := string(byt)
+                ApKind[tmp] = strings.Split(child, ".")[0]
+                CfGwOsApKind[child] = tmp</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+func watchAliveChild(onf string) error <span class="cov8" title="1">{
+        for </span><span class="cov8" title="1">{
+                select </span>{
+                case connE := &lt;-initZk.connEvent:<span class="cov8" title="1">
+                        </span><span class="cov8" title="1">{
+                                fmt.Println("ConEv", connE.State.String())
+                                // if session broken, try to reconnect.
+                                if connE.State == zk.StateExpired || connE.State == zk.StateDisconnected </span><span class="cov8" title="1">{
+                                        fmt.Println("ReConnect ", initZk.ReConnect)
+                                        if initZk.ReConnect </span><span class="cov8" title="1">{
+                                                // need to stop to watch first.
+                                                fmt.Println("Connstate:", initZk.conn.State().String())
+                                                //z.conn.Close() //This will cause panic: close of closed channel.
+                                                conn, connEvent, err := zk.Connect(initZk.EndPoint, time.Second)
+                                                if err != nil </span><span class="cov0" title="0">{
+                                                        return err
+                                                }</span>
+                                                <span class="cov8" title="1">initZk.conn = conn
+                                                initZk.connEvent = connEvent
+                                                initZk.AliveNodeAddOrUpdate(localendpoint)</span>
+                                        } else<span class="cov0" title="0"> {
+                                                initZk.conn.Close()
+                                                os.Exit(0)
+                                                return errors.New("Broken")
+                                        }</span>
+                                } else<span class="cov8" title="1"> {
+                                        _, _, eventAilve, err := initZk.conn.ChildrenW(fmt.Sprintf("%s/AliveNode/%s", initZk.Path, onf))
+                                        if err != nil </span><span class="cov8" title="1">{
+                                                return err
+                                        }</span>
+                                        <span class="cov8" title="1">fmt.Println("WatchAliveChild on ", onf)
+                                        select </span>{
+                                        case event := &lt;-eventAilve:<span class="cov8" title="1">
+                                                </span><span class="cov8" title="1">{
+                                                        err = initZk.watchProcess(event)
+                                                        if err != nil </span><span class="cov0" title="0">{
+                                                                return err
+                                                        }</span>
+                                                }
+                                        }
+                                }
+                        }
+                }
+        }
+}
+
+func (z Zkinfo) watchProcess(event zk.Event) error <span class="cov8" title="1">{
+        fmt.Println("*******************")
+        fmt.Println("path:", event.Path)
+        fmt.Println("type:", event.Type.String())
+        fmt.Println("state:", event.State.String())
+        fmt.Println("-------------------")
+        // compare which one is minimum.
+        slince := strings.Split(event.Path, "/")
+        onf := slince[len(slince)-1]
+        node, _, err := z.conn.Children(event.Path)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">min := 99999
+        stringseq := ""
+        if len(node) != 0 </span><span class="cov8" title="1">{
+                for _, v := range node </span><span class="cov8" title="1">{
+                        t, err := strconv.Atoi(v)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return err
+                        }</span>
+                        <span class="cov8" title="1">if t &lt; min </span><span class="cov8" title="1">{
+                                min = t
+                                stringseq = v
+                        }</span>
+                }
+        }
+        // to get the IP address which is running.
+        <span class="cov8" title="1">if stringseq != "" </span><span class="cov8" title="1">{
+                bye, _, err := z.conn.Get(fmt.Sprintf("%s/%s", event.Path, stringseq))
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">NodeInfo.RunningTCP[onf] = string(bye)</span>
+        }
+        // to know the status of each node.
+        <span class="cov8" title="1">if onf == z.Onf </span><span class="cov8" title="1">{
+                if min == seq </span><span class="cov8" title="1">{
+                        NodeInfo.State[z.Onf] = "Run"
+                }</span> else<span class="cov8" title="1"> {
+                        NodeInfo.State[z.Onf] = "Standby"
+                }</span>
+        } else<span class="cov8" title="1"> {
+                if _, ok := NodeInfo.State[onf]; ok </span><span class="cov8" title="1">{
+                        if stringseq != "" </span><span class="cov8" title="1">{
+                                NodeInfo.State[onf] = "Run"
+                        }</span>
+                } else<span class="cov0" title="0"> {
+                        NodeInfo.State[onf] = "Die"
+                }</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+func watchAlive(carenode []string) <span class="cov8" title="1">{
+        for _, val := range carenode </span><span class="cov8" title="1">{
+                go func(onf string) </span><span class="cov8" title="1">{
+                        err := watchAliveChild(onf)
+                        if err != nil </span><span class="cov8" title="1">{
+                                fmt.Println("WatchAlive on ", err, "onf: ", onf)
+                                //do something
+                        }</span>
+                }(val)
+        }
+        <span class="cov8" title="1">go func(onf string) </span><span class="cov8" title="1">{
+                err := watchAliveChild(onf)
+                if err != nil </span><span class="cov8" title="1">{
+                        fmt.Println("2WatchAlive on ", err, "onf: ", onf)
+                        //do something
+                }</span>
+        }(initZk.Onf)
+}
+func (z Zkinfo) aliveNodeServices() error <span class="cov8" title="1">{
+        alivepath := z.Path + "/AliveNode"
+        for _, val := range z.careNode </span><span class="cov8" title="1">{
+                node, _, err := z.conn.Children(fmt.Sprintf("%s/%s", alivepath, val))
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">if len(node) == 0 </span><span class="cov8" title="1">{
+                        NodeInfo.State[val] = "Die"
+                }</span> else<span class="cov8" title="1"> {
+                        NodeInfo.State[val] = "Run"
+                        min := 99999
+                        stringseq := ""
+                        if len(node) != 0 </span><span class="cov8" title="1">{
+                                for _, v := range node </span><span class="cov8" title="1">{
+                                        t, err := strconv.Atoi(v)
+                                        if err != nil </span><span class="cov0" title="0">{
+                                                return err
+                                        }</span>
+                                        <span class="cov8" title="1">if t &lt; min </span><span class="cov8" title="1">{
+                                                min = t
+                                                stringseq = v
+                                        }</span>
+                                }
+                        }
+                        // to get the IP address which is running.
+                        <span class="cov8" title="1">if stringseq != "" </span><span class="cov8" title="1">{
+                                bye, _, err := z.conn.Get(fmt.Sprintf("%s/%s/%s", alivepath, val, stringseq))
+                                if err != nil </span><span class="cov0" title="0">{
+                                        return err
+                                }</span>
+                                <span class="cov8" title="1">NodeInfo.RunningTCP[val] = string(bye)</span>
+                        }
+                }
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
+// AliveNodeAddOrUpdate is used to update the node or add new one at alive path
+func (z Zkinfo) AliveNodeAddOrUpdate(endpoint string) error <span class="cov8" title="1">{
+        strpath := fmt.Sprintf("%s/AliveNode/%s", z.Path, z.Onf)
+        node, _, err := z.conn.Children(strpath)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">min := 99999
+        if len(node) != 0 </span><span class="cov8" title="1">{
+                for _, v := range node </span><span class="cov8" title="1">{
+                        t, err := strconv.Atoi(v)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return err
+                        }</span>
+                        <span class="cov8" title="1">if t &lt; min </span><span class="cov8" title="1">{
+                                min = t
+                        }</span>
+                }
+                <span class="cov8" title="1">if seq == 0 </span><span class="cov8" title="1">{
+                        seqpath, err := z.createProtectedSequential(strpath+"/", []byte(endpoint), zk.WorldACL(zk.PermAll))
+                        if err != nil </span><span class="cov0" title="0">{
+                                return err
+                        }</span>
+                        <span class="cov8" title="1">tmpslice := strings.Split(seqpath, "/")
+                        seq, err = strconv.Atoi(tmpslice[len(tmpslice)-1])
+                        if err != nil </span><span class="cov0" title="0">{
+                                return err
+                        }</span>
+                        <span class="cov8" title="1">NodeInfo.State[z.Onf] = "Standby"
+                        localendpoint = endpoint</span>
+                } else<span class="cov0" title="0"> if seq != min </span><span class="cov0" title="0">{
+                        NodeInfo.State[z.Onf] = "Standby"
+                        localendpoint = endpoint
+                }</span> else<span class="cov0" title="0"> {
+                        NodeInfo.State[z.Onf] = "Run"
+                        localendpoint = endpoint
+                        NodeInfo.RunningTCP[z.Onf] = localendpoint
+                }</span>
+        } else<span class="cov8" title="1"> {
+                seqpath, err := z.createProtectedSequential(strpath+"/", []byte(endpoint), zk.WorldACL(zk.PermAll))
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">tmpslice := strings.Split(seqpath, "/")
+                seq, err = strconv.Atoi(tmpslice[len(tmpslice)-1])
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">NodeInfo.State[z.Onf] = "Run"
+                localendpoint = endpoint
+                NodeInfo.RunningTCP[z.Onf] = localendpoint</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
